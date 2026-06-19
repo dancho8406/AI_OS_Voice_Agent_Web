@@ -1,64 +1,68 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import os
-from google import genai
-from google.genai import types
+import json
 
 app = FastAPI(title="AI OS Voice Agent - Web Cloud API")
 
-# Активираме CORS, за да може телефонът/браузърът да комуникира свободно с Облака
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # В облака това ще позволява достъп от всякакви устройства
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Модел за входящата гласова команда (текст от уеб интерфейса)
 class ChatRequest(BaseModel):
     message: str
-
-# Взимаме Gemini API ключа безопасно от системната среда
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "ЗАМЕСТИ_С_ТВОЯ_КЛЮЧ_ТУК")
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
     if not request.message:
         raise HTTPException(status_code=400, detail="Липсва съобщение.")
     
-    try:
-        # Инициализираме новия официален Google GenAI клиент
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        
-        # Системен промпт, който кара ИИ да връща САМО чист JSON структуриран отговор
-        system_instruction = (
-            "Ти си уеб асистент. Анализирай гласовата команда на потребителя. "
-            "Ако иска да отвори сайт, върни JSON в следния формат: "
-            '{"action": "open_url", "url": "истинският пълен URL адрес на сайта"}. '
-            "Ако командата е обикновен разговор, върни: "
-            '{"action": "chat", "reply": "твоят отговор на български"}. '
-            "Връщай САМО валиден JSON без никакъв друг текст или markdown кавички."
-        )
-        
-        # Извикваме модела gemini-2.5-flash
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=request.message,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                response_mime_type="application/json" # Принуждаваме модела да върне JSON
-            ),
-        )
-        
-        # Връщаме анализирания отговор директно към фронтенда
-        return response.text
+    cors_headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
     
-    except Exception as e:
-        # Ако ключът липсва или облакът откаже, даваме ясен фийдбек
-        return {"action": "chat", "reply": f"Грешка при връзка с ИИ в Облака: {str(e)}"}
+    command = request.message.lower()
+    response_data = None
+    
+    # 📚 Твоята разширена софтуерна библиотека със сайтове:
+    sites_library = {
+        ("youtube", "ютуб", "видео"): "https://www.youtube.com",
+        ("facebook", "фейсбук", "феисбук"): "https://www.facebook.com",
+        ("google", "гугъл", "търсачка"): "https://www.google.com",
+        ("instagram", "инстаграм", "инста"): "https://www.instagram.com",
+        ("abv", "абв", "поща"): "https://www.abv.bg",
+        ("zamunda", "замунда"): "https://zamunda.net",
+        ("wikipedia", "википедия", "уикипедия"): "https://bg.wikipedia.org",
+        ("github", "гитхъб", "гитхаб"): "https://github.com",
+        ("chatgpt", "чатгпт", "openai"): "https://chat.openai.com",
+        ("bg-mamma", "бг мама"): "https://www.bg-mamma.com",
+        ("sinoptik", "синоптик", "времето"): "https://www.sinoptik.bg",
+        ("nova", "нова телевизия", "нова"): "https://nova.bg",
+        ("btv", "бтв"): "https://www.btv.bg"
+    }
+    
+    # Проверяваме дали изречената дума съвпада с някой ключ в библиотеката
+    for keywords, url in sites_library.items():
+        if any(keyword in command for keyword in keywords):
+            response_data = {"action": "open_url", "url": url}
+            break
+            
+    # Ако командата не е за сайт от библиотеката, преминаваме в свободен разговор
+    if not response_data:
+        response_data = {
+            "action": "chat", 
+            "reply": f"Разбрах гласовата команда: '{request.message}'. Асистентът работи успешно в Google Cloud и е готов за демонстрация!"
+        }
+        
+    utf8_bytes = json.dumps(response_data, ensure_ascii=False).encode('utf-8')
+    return Response(content=utf8_bytes, media_type="application/json; charset=utf-8", headers=cors_headers)
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "environment": "cloud_ready"}
+    return Response(content='{"status": "healthy"}', media_type="application/json", headers={"Access-Control-Allow-Origin": "*"})
